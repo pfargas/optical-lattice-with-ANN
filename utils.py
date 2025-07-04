@@ -25,7 +25,10 @@ def chain_to_idx(input, N_states, N_particles):
         for i in range(1, N_particles + 1):
             idx += input[i - 1] * (N_states ** (N_particles - i))
         return idx
+    elif isinstance(input, int):
+        pass
     else:
+        print(type(input))
         raise ValueError("Input must be an integer or an iterable of particle indices.")
 
 
@@ -159,10 +162,10 @@ def kinetic_matrix_many_particles(
                 factors.append(kin_matrix_one_p)
             else:
                 factors.append(II)
-        print(f"Term {i+1}:")
-        for factor in factors:
-            print(f"\n{factor}\n")
-        print("\n________________________\n")
+        # print(f"Term {i+1}:")
+        # for factor in factors:
+        #     print(f"\n{factor}\n")
+        # print("\n________________________\n")
 
         # Kronecker product of all factors
         term = factors[0]
@@ -274,35 +277,93 @@ def interaction_matrix_many_body(
     **kwargs,
 ):
     """Construct the interaction potential matrix for a many-body system."""
+
+    N_points = space_properties.N_points
     interaction_matrix = interaction_matrix_two_body(
         U, space_properties, *args, **kwargs
     )
     ordered_interaction_diag = interaction_matrix.flatten()
     # Generate the possible particle pairs without repetition
 
-    idx_parti_pairs = tuple(itertools.combinations(range(N_parti), 2))
+    idx_parti_pairs = list(itertools.combinations(range(N_particles), 2))
+
+    interaction_diagonal = np.zeros((N_points**N_particles))
+    for i in range(N_points**N_particles):
+        # for each diagonal element of the hamiltonian:
+        state = idx_to_chain(i, N_states=space_properties.N_points, N_particles=N_particles)
+        # compute the state
+        if len(state) != N_particles:
+            raise ValueError(f"State {state} does not match the number of particles {N_particles}.")
+        # Start computing the interaction term as the sum of the possible pairs
+        U_total = 0.0
+        # for each combination of particles
+        for particle_pair in idx_parti_pairs:
+            # Retrieve at what state are those particles
+            x, y = state[particle_pair[0]], state[particle_pair[1]]
+            U_total += interaction_matrix[x,y]
+        interaction_diagonal[i] = U_total
+    return np.diag(interaction_diagonal)
+
+def total_hamiltonian(space_properties=None, V:callable=None, U:callable=None , N_particles=1, V_params:dict=None, U_params:dict=None):
+    """Construct the total Hamiltonian for a many-particle system."""
+    if not isinstance(space_properties, SpaceDiscretization):
+        space_properties = SpaceDiscretization(N_points=100, L_box=2.0, PBC=True)
+
+    kinetic_matrix = kinetic_matrix_many_particles(space_properties, N_particles)
+    potential_matrix = potential_matrix_many_body(
+        V, space_properties, N_particles, V_params if V_params is not None else {}
+    )
+    if N_particles > 1:
+        interaction_matrix = interaction_matrix_many_body(
+            U, space_properties, N_particles, U_params if U_params is not None else {}
+        )
+    else:
+        interaction_matrix = np.zeros_like(potential_matrix)
+
+    return kinetic_matrix + potential_matrix + interaction_matrix
 
 
-# YOU ARE HERE
+def testing():
+    a = SpaceDiscretization(N_points=2, L_box=2.0, PBC=True)
 
-a = SpaceDiscretization(N_points=2, L_box=2.0, PBC=True)
-
-x = np.linspace(a.bounds[0], a.bounds[1], a.N_points)
-print(x)
-
-
-def V(x):
-    return x
+    x = np.linspace(a.bounds[0], a.bounds[1], a.N_points)
+    print(x)
 
 
-potential_matrix = potential_matrix_many_body(V, space_properties=a, N_particles=2)
-print(potential_matrix)
+    def V(x):
+        return x
+
+    def U(x1, x2):
+        return x1 + x2
 
 
-psi = DiscreteState(N_states=2, N_particles=3, initial_state=[0, 1, 0])
-print(psi)
+    potential_matrix = potential_matrix_many_body(V, space_properties=a, N_particles=2)
+    print(potential_matrix)
 
-N_parti = 4
-parti_idx = np.arange(N_parti)
-pairs = tuple(itertools.combinations(parti_idx, 2))
-print(pairs)
+
+    psi = DiscreteState(N_states=2, N_particles=3, initial_state=[0, 1, 0])
+    print(psi)
+
+    N_parti = 3
+    parti_idx = np.arange(N_parti)
+    pairs = tuple(itertools.combinations(parti_idx, 2))
+    print(pairs)
+
+    interaction_matrix = interaction_matrix_many_body(U, space_properties=a, N_particles=N_parti)
+    print(interaction_matrix)
+
+
+if __name__ == "__main__":
+    
+    a = SpaceDiscretization(N_points=10, L_box=2.0, PBC=True)
+    def V(x,kwargs):
+        return np.sin(x)**2
+    
+    def U(x1, x2, kwargs):
+        return np.exp(-(x1 - x2)**2)
+    
+    H = total_hamiltonian(space_properties=a, V=V, U=U, N_particles=3)
+    print(H)
+
+    eigvals, eigvecs = np.linalg.eigh(H)
+    print("Eigenvalues:", eigvals[:5])
