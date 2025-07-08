@@ -4,7 +4,7 @@ import warnings
 from constants import Constants
 from numpy import ndarray
 import itertools
-from scipy.sparse import csr_matrix, kron
+from scipy.sparse import csr_matrix, kron, diags
 from scipy.sparse.linalg import eigsh
 
 
@@ -272,9 +272,11 @@ def interaction_matrix_many_body(
             x, y = state[particle_pair[0]], state[particle_pair[1]]
             U_total += interaction_matrix[x,y]
         interaction_diagonal[i] = U_total
-        
-    interaction_diagonal = np.diag(interaction_diagonal)  # Convert to diagonal matrix
-    interaction_diagonal = csr_matrix(interaction_diagonal)  # Convert to sparse matrix for efficiency
+    
+    interaction_diagonal = diags(interaction_diagonal, offsets=0, format='csr')
+
+    # interaction_diagonal = np.diag(interaction_diagonal)  # Convert to diagonal matrix
+    # interaction_diagonal = csr_matrix(interaction_diagonal)  # Convert to sparse matrix for efficiency
     return interaction_diagonal
 
 def total_hamiltonian(space_properties=None, V:callable=None, U:callable=None , N_particles=1, V_params:dict=None, U_params:dict=None):
@@ -335,8 +337,9 @@ if __name__ == "__main__":
     def U(x1, x2, kwargs):
         return np.exp(-(x1 - x2)**2)
     
-    H = total_hamiltonian(space_properties=a, V=V, U=U, N_particles=3)
-    print(H)
+    H = total_hamiltonian(space_properties=a, V=V, U=U, N_particles=4)
+    print(type(H))
+    print("Shape of Hamiltonian:", H.shape)
 
     eigvals, eigvecs = eigsh(H, k=5, which='SM')
     print("Eigenvalues:", eigvals)
