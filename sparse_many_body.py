@@ -122,7 +122,9 @@ class SpaceDiscretization:
             self.N_points = int(self.L_box / dx)
 
 
-def kinetic_matrix_one_particle(space_properties: SpaceDiscretization = None) -> csr_matrix:
+def kinetic_matrix_one_particle(
+    space_properties: SpaceDiscretization = None,
+) -> csr_matrix:
     if not isinstance(space_properties, SpaceDiscretization):
         space_properties = SpaceDiscretization(N_points=100, L_box=2.0, PBC=True)
 
@@ -169,7 +171,7 @@ def one_body_operator_many_particles(
         # Kronecker product of all factors
         term = factors[0]
         for f in factors[1:]:
-            term = kron(term, f, format='csr')
+            term = kron(term, f, format="csr")
 
         operator_many_body += term
 
@@ -200,7 +202,7 @@ def potential_matrix_one_body(
     pot_matrix = np.zeros((N_points, N_points))
     for i in range(N_points):
         pot_matrix[i, i] = V(x[i], *args, **kwargs)
-    
+
     pot_matrix = csr_matrix(pot_matrix)  # Convert to sparse matrix for efficiency
     return pot_matrix
 
@@ -260,26 +262,38 @@ def interaction_matrix_many_body(
     interaction_diagonal = np.zeros((N_points**N_particles))
     for i in range(N_points**N_particles):
         # for each diagonal element of the hamiltonian:
-        state = idx_to_chain(i, N_states=space_properties.N_points, N_particles=N_particles)
+        state = idx_to_chain(
+            i, N_states=space_properties.N_points, N_particles=N_particles
+        )
         # compute the state
         if len(state) != N_particles:
-            raise ValueError(f"State {state} does not match the number of particles {N_particles}.")
+            raise ValueError(
+                f"State {state} does not match the number of particles {N_particles}."
+            )
         # Start computing the interaction term as the sum of the possible pairs
         U_total = 0.0
         # for each combination of particles
         for particle_pair in idx_parti_pairs:
             # Retrieve at what state are those particles
             x, y = state[particle_pair[0]], state[particle_pair[1]]
-            U_total += interaction_matrix[x,y]
+            U_total += interaction_matrix[x, y]
         interaction_diagonal[i] = U_total
-    
-    interaction_diagonal = diags(interaction_diagonal, offsets=0, format='csr')
+
+    interaction_diagonal = diags(interaction_diagonal, offsets=0, format="csr")
 
     # interaction_diagonal = np.diag(interaction_diagonal)  # Convert to diagonal matrix
     # interaction_diagonal = csr_matrix(interaction_diagonal)  # Convert to sparse matrix for efficiency
     return interaction_diagonal
 
-def total_hamiltonian(space_properties=None, V:callable=None, U:callable=None , N_particles=1, V_params:dict=None, U_params:dict=None):
+
+def total_hamiltonian(
+    space_properties=None,
+    V: callable = None,
+    U: callable = None,
+    N_particles=1,
+    V_params: dict = None,
+    U_params: dict = None,
+):
     """Construct the total Hamiltonian for a many-particle system."""
     if not isinstance(space_properties, SpaceDiscretization):
         space_properties = SpaceDiscretization(N_points=100, L_box=2.0, PBC=True)
@@ -304,17 +318,14 @@ def testing():
     x = np.linspace(a.bounds[0], a.bounds[1], a.N_points)
     print(x)
 
-
     def V(x):
         return x
 
     def U(x1, x2):
         return x1 + x2
 
-
     potential_matrix = potential_matrix_many_body(V, space_properties=a, N_particles=2)
     print(potential_matrix)
-
 
     psi = DiscreteState(N_states=2, N_particles=3, initial_state=[0, 1, 0])
     print(psi)
@@ -324,22 +335,88 @@ def testing():
     pairs = tuple(itertools.combinations(parti_idx, 2))
     print(pairs)
 
-    interaction_matrix = interaction_matrix_many_body(U, space_properties=a, N_particles=N_parti)
+    interaction_matrix = interaction_matrix_many_body(
+        U, space_properties=a, N_particles=N_parti
+    )
     print(interaction_matrix)
 
 
 if __name__ == "__main__":
-    
-    a = SpaceDiscretization(N_points=100, L_box=2.0, PBC=True)
-    def V(x,kwargs):
-        return np.sin(x)**2
-    
+    import argparse
+    import sys
+    import os
+    import datetime
+    import json
+
+    parser = argparse.ArgumentParser(
+        description="Sparse many-body Hamiltonian diagonalization."
+    )
+    parser.add_argument(
+        "--N_particles", type=int, default=2, help="Number of particles."
+    )
+    parser.add_argument(
+        "--N_points", type=int, default=100, help="Number of discretized points."
+    )
+    parser.add_argument(
+        "--L_box", type=float, default=2.0, help="Length of the box for discretization."
+    )
+    parser.add_argument(
+        "--PBC",
+        action="store_true",
+        help="Use periodic boundary conditions.",
+        default=True,
+    )
+
+    args = parser.parse_args()
+
+    for arg in vars(args).items():
+        print(f"{arg[0]}: {arg[1]}")
+
+    N_particles = args.N_particles
+    N_points = args.N_points
+    L_box = args.L_box
+    PBC = args.PBC
+
+    a = SpaceDiscretization(N_points=N_points, L_box=L_box, PBC=PBC)
+
+    def V(x, kwargs):
+        """Potential function V(x) for the system."""
+        V0 = kwargs["V0"] if "V0" in kwargs else 1.0
+        K1 = kwargs["K1"] if "K1" in kwargs else 1.0
+        return V0 * np.sin(K1 * x) ** 2
+
     def U(x1, x2, kwargs):
-        return np.exp(-(x1 - x2)**2)
-    
-    H = total_hamiltonian(space_properties=a, V=V, U=U, N_particles=4)
-    print(type(H))
+        return np.exp(-((x1 - x2) ** 2))
+
+    H = total_hamiltonian(space_properties=a, V=V, U=U, N_particles=N_particles)
     print("Shape of Hamiltonian:", H.shape)
 
-    eigvals, eigvecs = eigsh(H, k=5, which='SM')
+    eigvals, eigvecs = eigsh(H, k=5, which="SM")
     print("Eigenvalues:", eigvals)
+
+    # save in output directory
+    output_dir = "output"
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+
+    directory_name = (
+        f"sparse_many_body_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    )
+
+    final_directory = os.path.join(output_dir, directory_name)
+
+    if not os.path.exists(final_directory):
+        os.makedirs(final_directory)
+
+    # Save parameters in a JSON file
+    params = {
+        "N_particles": N_particles,
+        "N_points": N_points,
+        "L_box": L_box,
+        "PBC": PBC,
+    }
+    with open(os.path.join(final_directory, "params.json"), "w") as f:
+        json.dump(params, f, indent=4)
+
+    np.save(os.path.join(final_directory, "eigvals.npy"), eigvals)
+    np.save(os.path.join(final_directory, "eigvecs.npy"), eigvecs)
